@@ -49,24 +49,33 @@ func main(){
 	log.Printf("inventory-service started | group=%s topic=%s", groupID, orderTopic)
 
 	for {
-		// blocks until a message arrives or context is cancelled
-		msg, err := reader.ReadMessage(ctx)
+		msg, err := reader.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				break // clean shutdown
+				break
 			}
-			log.Printf("ERROR reading: %v", err)
-			continue;
+			log.Printf("Error fetching: %v", err)
+			continue
 		}
-
 		var order models.Order
-
 		if err := json.Unmarshal(msg.Value, &order); err != nil {
 			log.Printf("ERROR deserializing offset=%d: %v", msg.Offset, err)
+			if err := reader.CommitMessages(ctx, msg); err != nil {
+				log.Printf("ERROR committing bad message: %v", err)
+			}
 			continue
 		}
 
-		log.Printf("[INVENTORY] order_id=%s item=%s qty=%d | partition=%d offset=%d", order.ID, order.Item, order.Quantity, msg.Partition, msg.Offset)
+		if err := processOrder(order, msg); err != nil {
+			log.Printf("ERROR processing order %s: %v", order.ID, err)
+			continue
+		}
 	}
 	log.Printf("inventory service stopped")
 }
+
+func processOrder(order models.Order, msg kafka.Message) error {
+	log.Printf("[INVENTORY] order_id=%s item=%s qty=%d | partition=%d offset=%d",
+			order.ID, order.Item, order.Quantity, msg.Partition, msg.Offset)
+	return nil
+} 
